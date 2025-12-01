@@ -1,6 +1,6 @@
 # Liquidator
 
-Liquidator is a lightweight Python tool to **sanitize files** by removing metadata, resetting timestamps, and ensuring privacy for documents, images, videos, audio files, eBooks, and design files. It leverages `mat2`, `exiftool`, and `ffmpeg` to clean files while keeping the original content intact.
+Liquidator is a lightweight Python, Linux only tool to **sanitize files** by removing metadata, resetting timestamps, and ensuring privacy for documents, images, videos, audio files, eBooks, and design files. It leverages `mat2`, `exiftool`, and `ffmpeg` to clean files while keeping the original content intact.
 
 ## Features
 
