@@ -4,6 +4,7 @@ import cv2
 import argparse
 import uuid
 import tempfile
+import shutil
 
 # DOCUMENTS
 doc_extensions = [
@@ -62,9 +63,11 @@ args = parser.parse_args()
 
 file = args.file
 
+# Sanity check
 if not os.path.isfile(file):
     raise FileNotFoundError(f"{file} not found")
 
+# Split the file extension and remove the dot
 ext = os.path.splitext(file)[1]
 ext = ext.replace('.', '')
 
@@ -72,7 +75,6 @@ if args.paranoid:
     print(f"Processing {file} with extension {ext} in paranoid mode...")
 
     if ext in doc_for_re_rerendering:
-
         if ext in ["doc", "docx"]:
             out_format = "docx"
 
@@ -82,42 +84,48 @@ if args.paranoid:
         elif ext in ["ppt", "pptx"]:
             out_format = "pptx"
 
+        # Create a temporary directory to store the converted file
         tmp_dir = tempfile.mkdtemp()
 
         subprocess.run([
-            "libreoffice",
-            "--headless",
-            "--convert-to",
-            out_format,
-            file,
-            "--outdir",
-            tmp_dir
-        ], check=True)
+            "libreoffice", "--headless",
+            "--convert-to", out_format,
+            file, "--outdir",
+            tmp_dir], check=True)
 
+        # Get the converted file path
         base_name = os.path.splitext(os.path.basename(file))[0]
+
         converted_file = os.path.join(tmp_dir, f"{base_name}.{out_format}")
 
+        # Generate a unique filename for the converted file
         uuid_file = f"{uuid.uuid4()}.{out_format}"
 
         subprocess.run(["mat2", "--inplace", converted_file], check=True)
+        subprocess.run(["exiftool", "-PreviewImage=", "-ThumbnailImage=", converted_file], check=True)
 
         os.rename(converted_file, uuid_file)
 
-        os.remove(file)
+        subprocess.run(["touch", "-a", "-m", "-t", "200001010000", uuid_file], check=True)
 
-    if ext in image_compatabl_with_cv2:
+        os.remove(file)
+        shutil.rmtree(tmp_dir)
+
+    elif ext in image_compatabl_with_cv2:
         img = cv2.imread(file)
         if img is None:
             raise ValueError("Failed to load image")
 
+        # Resize the image to 98% of its original size to further obfuscate metadata
         img = cv2.resize(img, None, fx=0.98, fy=0.98)
 
         if ext == "png":
             ext = "jpg"
 
+        # Generate a unique filename for the new image
         new_file = str(uuid.uuid4()) + f".{ext}"
 
-        # encode
+        # Save the image with appropriate quality settings based on the format
         if ext in ["jpg", "jpeg"]:
             cv2.imwrite(new_file, img, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
         elif ext == "webp":
@@ -125,25 +133,89 @@ if args.paranoid:
         else:
             cv2.imwrite(new_file, img)
 
+        # Sanity check
         if not os.path.exists(new_file):
             raise FileNotFoundError(f"Failed to create {new_file}")
 
         subprocess.run(["mat2", "--inplace", new_file], check=True)
+        subprocess.run(["exiftool", "-PreviewImage=", "-ThumbnailImage=", new_file], check=True)
+
+        subprocess.run(["touch", "-a", "-m", "-t", "200001010000", new_file], check=True)
 
         os.remove(file)
+
+    elif ext == "pdf":
+
+        new_file = f"{uuid.uuid4()}.pdf"
+
+        subprocess.run([
+            "gs",
+            "-o", new_file,
+            "-sDEVICE=pdfwrite",
+            "-dCompatibilityLevel=1.4",
+            "-dNOPAUSE",
+            "-dBATCH",
+            "-dQUIET",
+            "-dDetectDuplicateImages=true",
+            "-dCompressFonts=true",
+            "-dDiscardDocumentStruct=true",
+            "-dEmbedAllFonts=true",
+            "-dSubsetFonts=true",
+            file
+        ], check=True)
+
+        subprocess.run(["mat2", "--inplace", new_file], check=True)
+
+        subprocess.run(["touch", "-a", "-m", "-t", "200001010000", new_file], check=True)
+
+        os.remove(file)
+
+    elif ext in video_extensions:
+        new_file = f"{uuid.uuid4()}.{ext}"
+
+        subprocess.run([
+            "ffmpeg", "-i", file,
+            "-map_metadata", "-1",
+            "-c:v", "libx264", "-crf", "23",
+            "-c:a", "aac",
+            new_file
+        ], check=True)
+
+        subprocess.run(["exiftool", "-all=", "-overwrite_original", new_file], check=True)
+        subprocess.run(["touch", "-a", "-m", "-t", "200001010000", new_file], check=True)
+
+        os.remove(file)
+
+    elif ext in audio_extensions:
+        new_file = f"{uuid.uuid4()}.{ext}"
+
+        subprocess.run([
+            "ffmpeg", "-i", file,
+            "-map_metadata", "-1", "-vn",
+            "-c:a", "aac",
+            new_file
+        ], check=True)
+
+        subprocess.run(["exiftool", "-all=", "-overwrite_original", new_file], check=True)
+        subprocess.run(["touch", "-a", "-m", "-t", "200001010000", new_file], check=True)
+
+        os.remove(file)
+
 else:
     if ext in doc_extensions + image_extensions + design_extensions:
         subprocess.run(["mat2", "--inplace", file], check=True)
 
+        # For PDF we only remove metadata but not re-render
         if ext != "pdf":
             subprocess.run(["exiftool", "-all=", "-overwrite_original", file], check=True)
+            subprocess.run(["exiftool", "-PreviewImage=", "-ThumbnailImage=", file], check=True)
 
-        subprocess.run(["touch", "-t", "200001010000", file], check=True)
+        subprocess.run(["touch", "-a", "-m", "-t", "200001010000", file], check=True)
 
     elif ext in text_extensions:
         subprocess.run(["cp", file, f"newfile.{ext}"], check=True)
         subprocess.run(["mv", f"newfile.{ext}", file], check=True)
-        subprocess.run(["touch", "-t", "200001010000", file], check=True)
+        subprocess.run(["touch", "-a", "-m", "-t", "200001010000", file], check=True)
 
     elif ext in video_extensions + audio_extensions:
         subprocess.run([
@@ -153,14 +225,14 @@ else:
 
         subprocess.run(["mv", f"newfile.{ext}", file], check=True)
         subprocess.run(["exiftool", "-all=", "-overwrite_original", file], check=True)
-        subprocess.run(["touch", "-t", "200001010000", file], check=True)
+        subprocess.run(["touch", "-a", "-m", "-t", "200001010000", file], check=True)
 
     elif ext in ebook_extensions:
         subprocess.run(["mat2", "--inplace", file], check=True)
         subprocess.run(["ebook-meta", file, "--delete-metadata"], check=True)
-        subprocess.run(["touch", "-t", "200001010000", file], check=True)
+        subprocess.run(["touch", "-a", "-m", "-t", "200001010000", file], check=True)
 
     else:
         subprocess.run(["cp", file, f"newfile.{ext}"], check=True)
         subprocess.run(["mv", f"newfile.{ext}", file], check=True)
-        subprocess.run(["touch", "-t", "200001010000", file], check=True)
+        subprocess.run(["touch", "-a", "-m", "-t", "200001010000", file], check=True)
