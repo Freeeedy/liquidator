@@ -116,7 +116,36 @@ if args.paranoid:
         if img is None:
             raise ValueError("Failed to load image")
 
-        # Resize the image to 98% of its original size to further obfuscate metadata
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+        face_detect = cv2.CascadeClassifier(
+            cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+        )
+
+        faces = face_detect.detectMultiScale(gray, 1.3, 5)
+
+        for (x, y, w, h) in faces:
+            # expand the region
+            pad = int(0.25 * max(w, h))
+            x1 = max(0, x - pad)
+            y1 = max(0, y - pad)
+            x2 = min(img.shape[1], x + w + pad)
+            y2 = min(img.shape[0], y + h + pad)
+
+            roi = img[y1:y2, x1:x2]
+
+            # strong pixelation
+            small = cv2.resize(roi, (5 , 5), interpolation=cv2.INTER_LINEAR)
+            roi = cv2.resize(small, (x2 - x1, y2 - y1), interpolation=cv2.INTER_NEAREST)
+
+            # optional slight blur to smooth blocks
+            roi = cv2.GaussianBlur(roi, (61, 61), 0)
+
+            img[y1:y2, x1:x2] = roi
+
+        print("faces found:", len(faces))
+        print(img.shape)
+        # Resize the image
         img = cv2.resize(img, None, fx=0.98, fy=0.98)
 
         if ext == "png":
@@ -142,7 +171,7 @@ if args.paranoid:
 
         subprocess.run(["touch", "-a", "-m", "-t", "200001010000", new_file], check=True)
 
-        os.remove(file)
+        #os.remove(file)
 
     elif ext == "pdf":
 
