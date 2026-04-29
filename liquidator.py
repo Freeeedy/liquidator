@@ -5,6 +5,7 @@ import argparse
 import uuid
 import tempfile
 import shutil
+import mediapipe as mp
 
 # DOCUMENTS
 doc_extensions = [
@@ -63,6 +64,10 @@ args = parser.parse_args()
 
 file = args.file
 
+mp_face_detection = mp.solutions.face_detection
+
+face_detection = mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5)
+
 # Sanity check
 if not os.path.isfile(file):
     raise FileNotFoundError(f"{file} not found")
@@ -113,17 +118,26 @@ if args.paranoid:
 
     elif ext in image_compatabl_with_cv2:
         img = cv2.imread(file)
-        if img is None:
-            raise ValueError("Failed to load image")
 
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        # Face detection 
+        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        results = face_detection.process(img_rgb)
 
-        face_detect = cv2.CascadeClassifier(
-            cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-        )
+        faces = []
+        if results.detections:
+            for detection in results.detections:
+                bbox = detection.location_data.relative_bounding_box
+                ih, iw, _ = img.shape
+                
+                # Convert relative coordinates to pixels
+                x = int(bbox.xmin * iw)
+                y = int(bbox.ymin * ih)
+                w = int(bbox.width * iw)
+                h = int(bbox.height * ih)
+                
+                faces.append((x, y, w, h))
 
-        faces = face_detect.detectMultiScale(gray, 1.3, 5)
-
+        # Pixelation
         for (x, y, w, h) in faces:
             # expand the region
             pad = int(0.25 * max(w, h))
@@ -134,7 +148,6 @@ if args.paranoid:
 
             roi = img[y1:y2, x1:x2]
 
-            # strong pixelation
             small = cv2.resize(roi, (5 , 5), interpolation=cv2.INTER_LINEAR)
             roi = cv2.resize(small, (x2 - x1, y2 - y1), interpolation=cv2.INTER_NEAREST)
 
